@@ -7,8 +7,10 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
-    <AssemblyName>PrivacyShieldPoc</AssemblyName>
-    <RootNamespace>PrivacyShieldPoc</RootNamespace>
+    <AssemblyName>PhantomHaze</AssemblyName>
+    <RootNamespace>PhantomHaze</RootNamespace>
+    <Version>1.1.0-beta</Version>
+    <InformationalVersion>v1.1 beta</InformationalVersion>
   </PropertyGroup>
 
 </Project>

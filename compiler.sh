@@ -1,4 +1,4 @@
-name: Build Privacy Shield POC
+name: Build PhantomHaze
 
 on:
   push:
@@ -19,7 +19,7 @@ jobs:
       # any Windows 11 x64 machine with no separate .NET install required.
       - name: Publish
         run: >
-          dotnet publish PrivacyShieldPoc.csproj
+          dotnet publish PhantomHaze.csproj
           -c Release
           -r win-x64
           --self-contained true
@@ -29,5 +29,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: PrivacyShieldPoc-win-x64
-          path: publish/PrivacyShieldPoc.exe
+          name: PhantomHaze-win-x64
+          path: publish/PhantomHaze.exe

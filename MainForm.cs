@@ -1,4 +1,4 @@
-namespace PrivacyShieldPoc;
+namespace PhantomHaze;
 
 public class MainForm : Form
 {
@@ -11,7 +11,7 @@ public class MainForm : Form
 
     public MainForm()
     {
-        Text = "Privacy Shield — Phase 1 Proof of Concept";
+        Text = "PhantomHaze v1.1 Beta";
         Width = 620;
         Height = 460;
         StartPosition = FormStartPosition.CenterScreen;
@@ -78,7 +78,6 @@ public class MainForm : Form
     private void ApplyProtection(bool enable)
     {
         var (ok, error) = NativeMethods.ExcludeFromCapture(Handle, enable);
-        _protectionEnabled = ok && enable;
 
         Log(ok
             ? $"SetWindowDisplayAffinity({(enable ? "WDA_EXCLUDEFROMCAPTURE" : "WDA_NONE")}) succeeded."
@@ -86,20 +85,23 @@ public class MainForm : Form
 
         if (NativeMethods.TryGetCurrentAffinity(Handle, out uint current))
         {
+            _protectionEnabled = current == NativeMethods.WDA_EXCLUDEFROMCAPTURE;
             Log($"Current window affinity: {NativeMethods.Describe(current)}.");
         }
         else
         {
+            // Fall back to call result only when we cannot read back state.
+            _protectionEnabled = ok && enable;
             Log("GetWindowDisplayAffinity failed to read back the current state.");
         }
 
         _statusLabel.Text = _protectionEnabled
-            ? "PROTECTION ACTIVE — excluded from supported capture"
-            : "PROTECTION DISABLED — visible to capture (testing only)";
+            ? "Protection Enabled - Your screen is hidden from capture software. yipee :D"
+            : "Protection Disabled - Your screen is visible to capture software. oh noes :(";
         _statusLabel.BackColor = _protectionEnabled ? Color.LightGreen : Color.LightSalmon;
 
         _toggleButton.Text = _protectionEnabled
-            ? "Disable Protection (testing only)"
+            ? "Disable Protection"
             : "Enable Protection";
     }
 

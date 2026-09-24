@@ -1,10 +1,10 @@
-# Privacy Shield — Phase 1 Proof of Concept
+# PhantomHaze v1.1 beta - Phase 1 Proof of Concept
 
 Smallest possible Windows 11 app proving that a window can stay visible to
 the person at the PC while being excluded from supported capture
 mechanisms, via `SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)`.
 
-Built as a .NET 8 WinForms app rather than Electron/Tauri: it needs no
+Built as a .NET 10 WinForms app rather than Electron/Tauri: it needs no
 native Node addon or separate Rust binary, `SetWindowDisplayAffinity` is a
 two-line P/Invoke call, and `dotnet build` alone produces a runnable .exe.
 Worth revisiting for Phase 2 if you want a different UI framework, but for
@@ -13,7 +13,7 @@ proving the Win32 call this is the fastest path.
 ## Architecture
 
 ```
-PrivacyShieldPoc
+PhantomHaze
 ├── Program.cs         entry point
 ├── MainForm.cs         UI layer: fake content, toggle, status, log
 └── NativeMethods.cs    native layer: SetWindowDisplayAffinity /
@@ -28,8 +28,8 @@ calls it and displays the result.
 ## Project structure
 
 ```
-PrivacyShieldPoc/
-├── PrivacyShieldPoc.csproj
+PhantomHaze/
+├── PhantomHaze.csproj
 ├── Program.cs
 ├── MainForm.cs
 ├── NativeMethods.cs
@@ -44,11 +44,11 @@ should print 10.x). .NET 9 or 8 also work fine here; just change
 `net8.0-windows`) if you'd rather use an SDK you already have installed.
 
 ```powershell
-cd PrivacyShieldPoc
+cd PhantomHaze
 dotnet build
 ```
 
-Or open `PrivacyShieldPoc.csproj` in Visual Studio 2022+ and build there.
+Or open `PhantomHaze.csproj` in Visual Studio 2022+ and build there.
 
 ## Run
 

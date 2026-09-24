@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace PrivacyShieldPoc;
+namespace PhantomHaze;
 
 /// <summary>
 /// Thin wrapper around the Win32 display-affinity APIs. This is the only

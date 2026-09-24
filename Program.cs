@@ -1,4 +1,4 @@
-namespace PrivacyShieldPoc;
+namespace PhantomHaze;
 
 internal static class Program
 {
