@@ -11,15 +11,18 @@ public class MainForm : Form
     private readonly Button _webViewToggleButton = new();
     private readonly Panel _addressBarPanel = new();
     private readonly TextBox _addressBarTextBox = new();
+    private readonly Button _backButton = new();
     private readonly Button _goButton = new();
     private readonly Button _refreshButton = new();
     private readonly Button _historyButton = new();
     private readonly Label _zoomLabel = new();
     private readonly TrackBar _zoomSlider = new();
     private readonly Panel _contentHostPanel = new();
+    private readonly Panel _historyPanel = new();
+    private readonly ListBox _historyListBox = new();
+    private readonly Button _historyClearButton = new();
     private readonly TextBox _logBox = new();
     private readonly WebView2 _webView = new();
-    private readonly ContextMenuStrip _historyMenu = new();
     private readonly string _logFilePath;
     private readonly string _webSessionPath;
     private readonly List<string> _sessionHistory = new();
@@ -27,6 +30,8 @@ public class MainForm : Form
     private bool _protectionEnabled;
     private bool _webViewInitialized;
     private bool _webViewModeEnabled;
+
+    private const string DefaultHomeUrl = "https://www.google.com";
 
     private const string DisableSiteDataScript = @"(() => {
 try {
@@ -65,7 +70,7 @@ try {
 
     public MainForm()
     {
-        Text = "PhantomHaze v1.2 Beta";
+        Text = "PhantomHaze v1.2.1 Beta";
         Width = 980;
         Height = 620;
         StartPosition = FormStartPosition.CenterScreen;
@@ -124,7 +129,7 @@ try {
 
     private void BuildUi()
     {
-        _contentLabel.Text = "PhantomHaze Beta v1.2";
+        _contentLabel.Text = "PhantomHaze Beta v1.2.1";
         _contentLabel.Font = new Font("Segoe UI", 16, FontStyle.Bold);
         _contentLabel.ForeColor = Color.Firebrick;
         _contentLabel.TextAlign = ContentAlignment.MiddleCenter;
@@ -142,6 +147,7 @@ try {
         _toggleButton.Click += (_, _) => ApplyProtection(enable: !_protectionEnabled);
 
         BuildAddressBar();
+        BuildHistoryPanel();
 
         _webViewToggleButton.Text = "Web View";
         _webViewToggleButton.Dock = DockStyle.Bottom;
@@ -161,6 +167,7 @@ try {
         _contentHostPanel.Dock = DockStyle.Fill;
         _contentHostPanel.Controls.Add(_webView);
         _contentHostPanel.Controls.Add(_logBox);
+        _contentHostPanel.Controls.Add(_historyPanel);
 
         // Docked children must be added in reverse visual order.
         Controls.Add(_contentHostPanel);
@@ -181,13 +188,14 @@ try {
         var stripLayout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 6,
+            ColumnCount = 7,
             RowCount = 1,
             Margin = new Padding(0),
             Padding = new Padding(0),
         };
 
         stripLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        stripLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 64f));
         stripLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 56f));
         stripLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 80f));
         stripLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 80f));
@@ -195,7 +203,7 @@ try {
         stripLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 185f));
 
         _addressBarTextBox.Dock = DockStyle.Fill;
-        _addressBarTextBox.PlaceholderText = "https://example.com";
+        _addressBarTextBox.PlaceholderText = DefaultHomeUrl;
         _addressBarTextBox.KeyDown += (_, e) =>
         {
             if (e.KeyCode == Keys.Enter)
@@ -204,6 +212,11 @@ try {
                 NavigateToAddressBarUrl();
             }
         };
+
+        _backButton.Text = "Back";
+        _backButton.Dock = DockStyle.Fill;
+        _backButton.Enabled = false;
+        _backButton.Click += (_, _) => GoBack();
 
         _goButton.Text = "Go";
         _goButton.Dock = DockStyle.Fill;
@@ -215,7 +228,7 @@ try {
 
         _historyButton.Text = "History";
         _historyButton.Dock = DockStyle.Fill;
-        _historyButton.Click += (_, _) => ShowHistoryMenu();
+        _historyButton.Click += (_, _) => ToggleHistoryPanel();
 
         _zoomLabel.Text = "Zoom 100%";
         _zoomLabel.Dock = DockStyle.Fill;
@@ -230,13 +243,58 @@ try {
         _zoomSlider.Scroll += (_, _) => ApplyZoom();
 
         stripLayout.Controls.Add(_addressBarTextBox, 0, 0);
-        stripLayout.Controls.Add(_goButton, 1, 0);
-        stripLayout.Controls.Add(_refreshButton, 2, 0);
-        stripLayout.Controls.Add(_historyButton, 3, 0);
-        stripLayout.Controls.Add(_zoomLabel, 4, 0);
-        stripLayout.Controls.Add(_zoomSlider, 5, 0);
+        stripLayout.Controls.Add(_backButton, 1, 0);
+        stripLayout.Controls.Add(_goButton, 2, 0);
+        stripLayout.Controls.Add(_refreshButton, 3, 0);
+        stripLayout.Controls.Add(_historyButton, 4, 0);
+        stripLayout.Controls.Add(_zoomLabel, 5, 0);
+        stripLayout.Controls.Add(_zoomSlider, 6, 0);
 
         _addressBarPanel.Controls.Add(stripLayout);
+    }
+
+    private void BuildHistoryPanel()
+    {
+        _historyPanel.Dock = DockStyle.Right;
+        _historyPanel.Width = 360;
+        _historyPanel.Padding = new Padding(8);
+        _historyPanel.Visible = false;
+        _historyPanel.BackColor = Color.FromArgb(245, 248, 252);
+
+        var historyTitle = new Label
+        {
+            Text = "Session History",
+            Dock = DockStyle.Top,
+            Height = 30,
+            TextAlign = ContentAlignment.MiddleLeft,
+            Font = new Font("Segoe UI", 10, FontStyle.Bold),
+        };
+
+        _historyClearButton.Text = "Clear";
+        _historyClearButton.Dock = DockStyle.Bottom;
+        _historyClearButton.Height = 32;
+        _historyClearButton.Click += (_, _) =>
+        {
+            _sessionHistory.Clear();
+            RefreshHistoryPanelItems();
+            Log("Web history cleared manually.");
+        };
+
+        _historyListBox.Dock = DockStyle.Fill;
+        _historyListBox.Font = new Font("Segoe UI", 9);
+        _historyListBox.DoubleClick += (_, _) => NavigateFromHistorySelection();
+        _historyListBox.KeyDown += (_, e) =>
+        {
+            if (e.KeyCode == Keys.Enter)
+            {
+                e.SuppressKeyPress = true;
+                NavigateFromHistorySelection();
+            }
+        };
+
+        _historyPanel.Controls.Add(_historyListBox);
+        _historyPanel.Controls.Add(_historyClearButton);
+        _historyPanel.Controls.Add(historyTitle);
     }
 
     private async Task ToggleWebViewModeAsync()
@@ -259,19 +317,18 @@ try {
 
             if (string.IsNullOrWhiteSpace(_addressBarTextBox.Text))
             {
-                _addressBarTextBox.Text = "https://example.com";
+                _addressBarTextBox.Text = DefaultHomeUrl;
             }
 
-            if (_webView.Source is null)
-            {
-                NavigateToAddressBarUrl();
-            }
+            EnsureDefaultHomePageLoaded();
 
             Log("Web View mode enabled.");
             return;
         }
 
         _webViewModeEnabled = false;
+        _historyPanel.Visible = false;
+        _historyButton.BackColor = SystemColors.Control;
         _addressBarPanel.Visible = false;
         _webView.Visible = false;
         _logBox.Visible = true;
@@ -319,6 +376,7 @@ try {
 
             _webView.ZoomFactor = _zoomSlider.Value / 100.0;
             _webViewInitialized = true;
+            UpdateNavigationButtons();
             Log("Web View initialized. Cookies and site data are disabled for this session.");
         }
         catch (Exception ex)
@@ -369,6 +427,44 @@ try {
         Log($"Navigate requested: {normalized}");
     }
 
+    private void EnsureDefaultHomePageLoaded()
+    {
+        if (!_webViewInitialized || _webView.CoreWebView2 is null)
+        {
+            return;
+        }
+
+        string current = _webView.Source?.ToString() ?? _webView.CoreWebView2.Source;
+        bool needsDefault = string.IsNullOrWhiteSpace(current) ||
+                            current.Equals("about:blank", StringComparison.OrdinalIgnoreCase);
+
+        if (!needsDefault)
+        {
+            return;
+        }
+
+        _addressBarTextBox.Text = DefaultHomeUrl;
+        _webView.CoreWebView2.Navigate(DefaultHomeUrl);
+        Log($"Default web page loaded: {DefaultHomeUrl}");
+    }
+
+    private void GoBack()
+    {
+        if (!_webViewInitialized || _webView.CoreWebView2 is null)
+        {
+            Log("Back navigation requested before Web View was initialized.");
+            return;
+        }
+
+        if (!_webView.CoreWebView2.CanGoBack)
+        {
+            return;
+        }
+
+        _webView.CoreWebView2.GoBack();
+        Log("Web back navigation requested.");
+    }
+
     private void RefreshWebView()
     {
         if (!_webViewInitialized || _webView.CoreWebView2 is null)
@@ -381,35 +477,44 @@ try {
         Log("Web page refresh requested.");
     }
 
-    private void ShowHistoryMenu()
+    private void ToggleHistoryPanel()
     {
-        _historyMenu.Items.Clear();
-
-        if (_sessionHistory.Count == 0)
+        if (!_webViewInitialized || _webView.CoreWebView2 is null)
         {
-            _historyMenu.Items.Add(new ToolStripMenuItem("No history in this session") { Enabled = false });
-        }
-        else
-        {
-            for (int i = _sessionHistory.Count - 1; i >= 0; i--)
-            {
-                string url = _sessionHistory[i];
-                var item = new ToolStripMenuItem(url);
-                item.Click += (_, _) => NavigateToHistoryUrl(url);
-                _historyMenu.Items.Add(item);
-            }
-
-            _historyMenu.Items.Add(new ToolStripSeparator());
-            var clearItem = new ToolStripMenuItem("Clear Session History");
-            clearItem.Click += (_, _) =>
-            {
-                _sessionHistory.Clear();
-                Log("Web history cleared manually.");
-            };
-            _historyMenu.Items.Add(clearItem);
+            Log("History requested before Web View was initialized.");
+            return;
         }
 
-        _historyMenu.Show(_historyButton, new Point(0, _historyButton.Height));
+        if (_historyPanel.Visible)
+        {
+            _historyPanel.Visible = false;
+            _historyButton.BackColor = SystemColors.Control;
+            Log("Web history panel closed.");
+            return;
+        }
+
+        RefreshHistoryPanelItems();
+        _historyPanel.Visible = true;
+        _historyPanel.BringToFront();
+        _historyButton.BackColor = Color.LightSteelBlue;
+        Log("Web history panel opened.");
+    }
+
+    private void NavigateFromHistorySelection()
+    {
+        if (_historyListBox.SelectedItem is not string selectedUrl)
+        {
+            return;
+        }
+
+        if (selectedUrl.StartsWith("(", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        NavigateToHistoryUrl(selectedUrl);
+        _historyPanel.Visible = false;
+        _historyButton.BackColor = SystemColors.Control;
     }
 
     private void NavigateToHistoryUrl(string url)
@@ -442,6 +547,28 @@ try {
         _webViewToggleButton.BackColor = _webViewModeEnabled ? Color.LightSkyBlue : SystemColors.Control;
     }
 
+    private void UpdateNavigationButtons()
+    {
+        _backButton.Enabled = _webViewInitialized &&
+                              _webView.CoreWebView2 is not null &&
+                              _webView.CoreWebView2.CanGoBack;
+    }
+
+    private void RefreshHistoryPanelItems()
+    {
+        _historyListBox.Items.Clear();
+        if (_sessionHistory.Count == 0)
+        {
+            _historyListBox.Items.Add("(No history in this session)");
+            return;
+        }
+
+        for (int i = _sessionHistory.Count - 1; i >= 0; i--)
+        {
+            _historyListBox.Items.Add(_sessionHistory[i]);
+        }
+    }
+
     private void OnWebNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
     {
         _addressBarTextBox.Text = e.Uri;
@@ -463,6 +590,7 @@ try {
         }
 
         _webView.CoreWebView2?.CookieManager.DeleteAllCookies();
+        UpdateNavigationButtons();
     }
 
     private void OnWebSourceChanged(object? sender, CoreWebView2SourceChangedEventArgs e)
@@ -491,6 +619,7 @@ try {
         }
 
         Log($"Web history state changed (Back: {_webView.CoreWebView2.CanGoBack}, Forward: {_webView.CoreWebView2.CanGoForward}).");
+        UpdateNavigationButtons();
     }
 
     private void OnWebNewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs e)
@@ -532,12 +661,17 @@ try {
             !_sessionHistory[^1].Equals(url, StringComparison.OrdinalIgnoreCase))
         {
             _sessionHistory.Add(url);
+            if (_historyPanel.Visible)
+            {
+                RefreshHistoryPanelItems();
+            }
         }
     }
 
     private void CleanupWebSession()
     {
         _sessionHistory.Clear();
+        _historyPanel.Visible = false;
 
         try
         {

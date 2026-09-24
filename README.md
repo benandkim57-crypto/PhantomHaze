@@ -4,7 +4,7 @@ PhantomHaze is a .NET 10 WinForms app for Windows that keeps its own window
 hidden from many screen capture workflows by using
 `SetWindowDisplayAffinity(..., WDA_EXCLUDEFROMCAPTURE)`.
 
-Current version: v1.2 beta.
+Current version: v1.2.1 beta.
 
 It includes:
 - Always-on protection toggle with status feedback.
