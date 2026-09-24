@@ -1,4 +1,5 @@
 # Fallback ignores if output paths are overridden into the repo
+tmp
 bin/
 obj/
 publish/
