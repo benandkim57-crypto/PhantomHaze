@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_FILE="$SCRIPT_DIR/PhantomHaze.csproj"
-TEMP_ROOT="${TMPDIR:-/tmp}"
+TEMP_ROOT="${PHANTOMHAZE_TEMP_ROOT:-$SCRIPT_DIR/tmp}"
 OUTPUT_DIR="${1:-$TEMP_ROOT/PhantomHaze/publish}"
 LOG_DIR="$TEMP_ROOT/PhantomHaze/logs"
 BIN_DIR="$TEMP_ROOT/PhantomHaze/bin"
