@@ -55,7 +55,7 @@ public class MainForm : Form
 
     private void BuildUi()
     {
-        _contentLabel.Text = "SECRET TEST CONTENT — DO NOT CAPTURE";
+        _contentLabel.Text = "PhantomHaze Beta v1.1";
         _contentLabel.Font = new Font("Segoe UI", 16, FontStyle.Bold);
         _contentLabel.ForeColor = Color.Firebrick;
         _contentLabel.TextAlign = ContentAlignment.MiddleCenter;
