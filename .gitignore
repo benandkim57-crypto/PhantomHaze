@@ -1,0 +1,8 @@
+# Fallback ignores if output paths are overridden into the repo
+bin/
+obj/
+publish/
+logs/
+tmp/
+*.log
+*.binlog

@@ -6,6 +6,7 @@ public class MainForm : Form
     private readonly Label _statusLabel = new();
     private readonly Button _toggleButton = new();
     private readonly TextBox _logBox = new();
+    private readonly string _logFilePath;
 
     private bool _protectionEnabled;
 
@@ -15,6 +16,7 @@ public class MainForm : Form
         Width = 620;
         Height = 460;
         StartPosition = FormStartPosition.CenterScreen;
+        _logFilePath = InitializeLogFilePath();
 
         BuildUi();
 
@@ -23,9 +25,17 @@ public class MainForm : Form
         // that only activates after detecting a recording tool.
         Load += (_, _) =>
         {
+            Log($"Log file: {_logFilePath}");
             LogTrueOsBuild();
             ApplyProtection(enable: true);
         };
+    }
+
+    private static string InitializeLogFilePath()
+    {
+        string logDir = Path.Combine(Path.GetTempPath(), "PhantomHaze", "logs");
+        Directory.CreateDirectory(logDir);
+        return Path.Combine(logDir, $"phantomhaze-{DateTime.UtcNow:yyyyMMdd}.log");
     }
 
     private void LogTrueOsBuild()
@@ -106,5 +116,17 @@ public class MainForm : Form
     }
 
     private void Log(string message)
-        => _logBox.AppendText($"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}");
+    {
+        string entry = $"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}";
+        _logBox.AppendText(entry);
+
+        try
+        {
+            File.AppendAllText(_logFilePath, entry);
+        }
+        catch
+        {
+            // Keep the app functional if temp storage is unavailable.
+        }
+    }
 }
