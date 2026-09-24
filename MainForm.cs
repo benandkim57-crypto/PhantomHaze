@@ -1,3 +1,6 @@
+using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.WinForms;
+
 namespace PhantomHaze;
 
 public class MainForm : Form
@@ -5,18 +8,69 @@ public class MainForm : Form
     private readonly Label _contentLabel = new();
     private readonly Label _statusLabel = new();
     private readonly Button _toggleButton = new();
+    private readonly Button _webViewToggleButton = new();
+    private readonly Panel _addressBarPanel = new();
+    private readonly TextBox _addressBarTextBox = new();
+    private readonly Button _goButton = new();
+    private readonly Button _refreshButton = new();
+    private readonly Button _historyButton = new();
+    private readonly Label _zoomLabel = new();
+    private readonly TrackBar _zoomSlider = new();
+    private readonly Panel _contentHostPanel = new();
     private readonly TextBox _logBox = new();
+    private readonly WebView2 _webView = new();
+    private readonly ContextMenuStrip _historyMenu = new();
     private readonly string _logFilePath;
+    private readonly string _webSessionPath;
+    private readonly List<string> _sessionHistory = new();
 
     private bool _protectionEnabled;
+    private bool _webViewInitialized;
+    private bool _webViewModeEnabled;
+
+    private const string DisableSiteDataScript = @"(() => {
+try {
+  Object.defineProperty(document, 'cookie', {
+    configurable: false,
+    enumerable: true,
+    get: () => '',
+    set: () => true
+  });
+} catch {}
+    try {
+        if (window.Storage && Storage.prototype) {
+            Storage.prototype.setItem = function () { throw new Error('Storage disabled by PhantomHaze.'); };
+            Storage.prototype.getItem = function () { return null; };
+            Storage.prototype.removeItem = function () { };
+            Storage.prototype.clear = function () { };
+        }
+    } catch {}
+    try { if (window.localStorage) { window.localStorage.clear(); } } catch {}
+    try { if (window.sessionStorage) { window.sessionStorage.clear(); } } catch {}
+try {
+  if (window.indexedDB) {
+    window.indexedDB.open = function () { throw new Error('IndexedDB disabled by PhantomHaze.'); };
+    window.indexedDB.deleteDatabase = function () { throw new Error('IndexedDB disabled by PhantomHaze.'); };
+  }
+} catch {}
+    try {
+        if (window.caches) {
+            window.caches.open = function () { return Promise.reject(new Error('Cache storage disabled by PhantomHaze.')); };
+            window.caches.match = function () { return Promise.resolve(undefined); };
+            window.caches.keys = function () { return Promise.resolve([]); };
+            window.caches.delete = function () { return Promise.resolve(false); };
+        }
+    } catch {}
+})();";
 
     public MainForm()
     {
-        Text = "PhantomHaze v1.1 Beta";
-        Width = 620;
-        Height = 460;
+        Text = "PhantomHaze v1.2 Beta";
+        Width = 980;
+        Height = 620;
         StartPosition = FormStartPosition.CenterScreen;
         _logFilePath = InitializeLogFilePath();
+        _webSessionPath = InitializeWebSessionPath();
 
         BuildUi();
 
@@ -26,9 +80,12 @@ public class MainForm : Form
         Load += (_, _) =>
         {
             Log($"Log file: {_logFilePath}");
+            Log($"Web session path: {_webSessionPath}");
             LogTrueOsBuild();
             ApplyProtection(enable: true);
         };
+
+        FormClosing += (_, _) => CleanupWebSession();
     }
 
     private static string InitializeLogFilePath()
@@ -36,6 +93,18 @@ public class MainForm : Form
         string logDir = Path.Combine(Path.GetTempPath(), "PhantomHaze", "logs");
         Directory.CreateDirectory(logDir);
         return Path.Combine(logDir, $"phantomhaze-{DateTime.UtcNow:yyyyMMdd}.log");
+    }
+
+    private static string InitializeWebSessionPath()
+    {
+        string sessionPath = Path.Combine(
+            Path.GetTempPath(),
+            "PhantomHaze",
+            "webview-session",
+            Guid.NewGuid().ToString("N"));
+
+        Directory.CreateDirectory(sessionPath);
+        return sessionPath;
     }
 
     private void LogTrueOsBuild()
@@ -50,12 +119,12 @@ public class MainForm : Form
         bool meetsMinimum = build >= NativeMethods.MinimumBuildForExcludeFromCapture;
         Log($"Detected Windows build: {build} " +
             $"(minimum for WDA_EXCLUDEFROMCAPTURE is {NativeMethods.MinimumBuildForExcludeFromCapture}) " +
-            $"— {(meetsMinimum ? "meets minimum" : "BELOW MINIMUM, the API call below is expected to fail")}.");
+            $"- {(meetsMinimum ? "meets minimum" : "BELOW MINIMUM, the API call below is expected to fail")}.");
     }
 
     private void BuildUi()
     {
-        _contentLabel.Text = "PhantomHaze Beta v1.1";
+        _contentLabel.Text = "PhantomHaze Beta v1.2";
         _contentLabel.Font = new Font("Segoe UI", 16, FontStyle.Bold);
         _contentLabel.ForeColor = Color.Firebrick;
         _contentLabel.TextAlign = ContentAlignment.MiddleCenter;
@@ -72,17 +141,453 @@ public class MainForm : Form
         _toggleButton.Height = 36;
         _toggleButton.Click += (_, _) => ApplyProtection(enable: !_protectionEnabled);
 
+        BuildAddressBar();
+
+        _webViewToggleButton.Text = "Web View";
+        _webViewToggleButton.Dock = DockStyle.Bottom;
+        _webViewToggleButton.Height = 38;
+        _webViewToggleButton.Click += async (_, _) => await ToggleWebViewModeAsync();
+        UpdateWebViewToggleVisual();
+
         _logBox.Multiline = true;
         _logBox.ReadOnly = true;
         _logBox.ScrollBars = ScrollBars.Vertical;
         _logBox.Dock = DockStyle.Fill;
         _logBox.Font = new Font("Consolas", 9);
 
+        _webView.Dock = DockStyle.Fill;
+        _webView.Visible = false;
+
+        _contentHostPanel.Dock = DockStyle.Fill;
+        _contentHostPanel.Controls.Add(_webView);
+        _contentHostPanel.Controls.Add(_logBox);
+
         // Docked children must be added in reverse visual order.
-        Controls.Add(_logBox);
+        Controls.Add(_contentHostPanel);
+        Controls.Add(_addressBarPanel);
         Controls.Add(_toggleButton);
         Controls.Add(_statusLabel);
         Controls.Add(_contentLabel);
+        Controls.Add(_webViewToggleButton);
+    }
+
+    private void BuildAddressBar()
+    {
+        _addressBarPanel.Dock = DockStyle.Top;
+        _addressBarPanel.Height = 50;
+        _addressBarPanel.Padding = new Padding(8, 8, 8, 8);
+        _addressBarPanel.Visible = false;
+
+        var stripLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 6,
+            RowCount = 1,
+            Margin = new Padding(0),
+            Padding = new Padding(0),
+        };
+
+        stripLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        stripLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 56f));
+        stripLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 80f));
+        stripLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 80f));
+        stripLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 82f));
+        stripLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 185f));
+
+        _addressBarTextBox.Dock = DockStyle.Fill;
+        _addressBarTextBox.PlaceholderText = "https://example.com";
+        _addressBarTextBox.KeyDown += (_, e) =>
+        {
+            if (e.KeyCode == Keys.Enter)
+            {
+                e.SuppressKeyPress = true;
+                NavigateToAddressBarUrl();
+            }
+        };
+
+        _goButton.Text = "Go";
+        _goButton.Dock = DockStyle.Fill;
+        _goButton.Click += (_, _) => NavigateToAddressBarUrl();
+
+        _refreshButton.Text = "Refresh";
+        _refreshButton.Dock = DockStyle.Fill;
+        _refreshButton.Click += (_, _) => RefreshWebView();
+
+        _historyButton.Text = "History";
+        _historyButton.Dock = DockStyle.Fill;
+        _historyButton.Click += (_, _) => ShowHistoryMenu();
+
+        _zoomLabel.Text = "Zoom 100%";
+        _zoomLabel.Dock = DockStyle.Fill;
+        _zoomLabel.TextAlign = ContentAlignment.MiddleCenter;
+
+        _zoomSlider.Minimum = 50;
+        _zoomSlider.Maximum = 200;
+        _zoomSlider.Value = 100;
+        _zoomSlider.TickFrequency = 10;
+        _zoomSlider.AutoSize = false;
+        _zoomSlider.Dock = DockStyle.Fill;
+        _zoomSlider.Scroll += (_, _) => ApplyZoom();
+
+        stripLayout.Controls.Add(_addressBarTextBox, 0, 0);
+        stripLayout.Controls.Add(_goButton, 1, 0);
+        stripLayout.Controls.Add(_refreshButton, 2, 0);
+        stripLayout.Controls.Add(_historyButton, 3, 0);
+        stripLayout.Controls.Add(_zoomLabel, 4, 0);
+        stripLayout.Controls.Add(_zoomSlider, 5, 0);
+
+        _addressBarPanel.Controls.Add(stripLayout);
+    }
+
+    private async Task ToggleWebViewModeAsync()
+    {
+        bool enableWebView = !_webViewModeEnabled;
+        if (enableWebView)
+        {
+            await EnsureWebViewInitializedAsync();
+            if (!_webViewInitialized)
+            {
+                return;
+            }
+
+            _webViewModeEnabled = true;
+            _addressBarPanel.Visible = true;
+            _webView.Visible = true;
+            _logBox.Visible = false;
+            _webView.BringToFront();
+            UpdateWebViewToggleVisual();
+
+            if (string.IsNullOrWhiteSpace(_addressBarTextBox.Text))
+            {
+                _addressBarTextBox.Text = "https://example.com";
+            }
+
+            if (_webView.Source is null)
+            {
+                NavigateToAddressBarUrl();
+            }
+
+            Log("Web View mode enabled.");
+            return;
+        }
+
+        _webViewModeEnabled = false;
+        _addressBarPanel.Visible = false;
+        _webView.Visible = false;
+        _logBox.Visible = true;
+        _logBox.BringToFront();
+        UpdateWebViewToggleVisual();
+        Log("Web View mode disabled; log panel restored.");
+    }
+
+    private async Task EnsureWebViewInitializedAsync()
+    {
+        if (_webViewInitialized)
+        {
+            return;
+        }
+
+        try
+        {
+            var options = new CoreWebView2EnvironmentOptions("--inprivate");
+            CoreWebView2Environment environment = await CoreWebView2Environment.CreateAsync(
+                browserExecutableFolder: null,
+                userDataFolder: _webSessionPath,
+                options: options);
+
+            await _webView.EnsureCoreWebView2Async(environment);
+
+            CoreWebView2 core = _webView.CoreWebView2;
+            core.Settings.IsScriptEnabled = true;
+            core.Settings.AreDefaultContextMenusEnabled = true;
+            core.Settings.IsStatusBarEnabled = true;
+            core.Settings.AreDevToolsEnabled = false;
+            core.Settings.IsGeneralAutofillEnabled = false;
+            core.Settings.IsPasswordAutosaveEnabled = false;
+
+            core.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All);
+            core.WebResourceRequested += OnWebResourceRequested;
+            core.NavigationStarting += OnWebNavigationStarting;
+            core.NavigationCompleted += OnWebNavigationCompleted;
+            core.SourceChanged += OnWebSourceChanged;
+            core.DocumentTitleChanged += OnWebDocumentTitleChanged;
+            core.HistoryChanged += OnWebHistoryChanged;
+            core.NewWindowRequested += OnWebNewWindowRequested;
+
+            await core.AddScriptToExecuteOnDocumentCreatedAsync(DisableSiteDataScript);
+            await ClearWebSiteDataAsync(core);
+
+            _webView.ZoomFactor = _zoomSlider.Value / 100.0;
+            _webViewInitialized = true;
+            Log("Web View initialized. Cookies and site data are disabled for this session.");
+        }
+        catch (Exception ex)
+        {
+            Log($"Web View initialization failed: {ex.Message}");
+            MessageBox.Show(
+                "Web View could not be initialized. Install Microsoft Edge WebView2 Runtime on the Windows host.",
+                "PhantomHaze",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+        }
+    }
+
+    private static async Task ClearWebSiteDataAsync(CoreWebView2 core)
+    {
+        core.CookieManager.DeleteAllCookies();
+        await core.Profile.ClearBrowsingDataAsync();
+    }
+
+    private void NavigateToAddressBarUrl()
+    {
+        if (!_webViewInitialized || _webView.CoreWebView2 is null)
+        {
+            Log("Web navigation requested before Web View was initialized.");
+            return;
+        }
+
+        string rawUrl = _addressBarTextBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(rawUrl))
+        {
+            return;
+        }
+
+        if (!rawUrl.Contains("://", StringComparison.Ordinal))
+        {
+            rawUrl = $"https://{rawUrl}";
+        }
+
+        if (!Uri.TryCreate(rawUrl, UriKind.Absolute, out Uri? uri))
+        {
+            Log($"Invalid web address: {rawUrl}");
+            return;
+        }
+
+        string normalized = uri.ToString();
+        _addressBarTextBox.Text = normalized;
+        _webView.CoreWebView2.Navigate(normalized);
+        Log($"Navigate requested: {normalized}");
+    }
+
+    private void RefreshWebView()
+    {
+        if (!_webViewInitialized || _webView.CoreWebView2 is null)
+        {
+            Log("Refresh requested before Web View was initialized.");
+            return;
+        }
+
+        _webView.Reload();
+        Log("Web page refresh requested.");
+    }
+
+    private void ShowHistoryMenu()
+    {
+        _historyMenu.Items.Clear();
+
+        if (_sessionHistory.Count == 0)
+        {
+            _historyMenu.Items.Add(new ToolStripMenuItem("No history in this session") { Enabled = false });
+        }
+        else
+        {
+            for (int i = _sessionHistory.Count - 1; i >= 0; i--)
+            {
+                string url = _sessionHistory[i];
+                var item = new ToolStripMenuItem(url);
+                item.Click += (_, _) => NavigateToHistoryUrl(url);
+                _historyMenu.Items.Add(item);
+            }
+
+            _historyMenu.Items.Add(new ToolStripSeparator());
+            var clearItem = new ToolStripMenuItem("Clear Session History");
+            clearItem.Click += (_, _) =>
+            {
+                _sessionHistory.Clear();
+                Log("Web history cleared manually.");
+            };
+            _historyMenu.Items.Add(clearItem);
+        }
+
+        _historyMenu.Show(_historyButton, new Point(0, _historyButton.Height));
+    }
+
+    private void NavigateToHistoryUrl(string url)
+    {
+        if (!_webViewInitialized || _webView.CoreWebView2 is null)
+        {
+            Log("History navigation requested before Web View was initialized.");
+            return;
+        }
+
+        _addressBarTextBox.Text = url;
+        _webView.CoreWebView2.Navigate(url);
+        Log($"History navigation: {url}");
+    }
+
+    private void ApplyZoom()
+    {
+        _zoomLabel.Text = $"Zoom {_zoomSlider.Value}%";
+        if (!_webViewInitialized)
+        {
+            return;
+        }
+
+        _webView.ZoomFactor = _zoomSlider.Value / 100.0;
+        Log($"Web zoom set to {_zoomSlider.Value}%.");
+    }
+
+    private void UpdateWebViewToggleVisual()
+    {
+        _webViewToggleButton.BackColor = _webViewModeEnabled ? Color.LightSkyBlue : SystemColors.Control;
+    }
+
+    private void OnWebNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
+    {
+        _addressBarTextBox.Text = e.Uri;
+        _webView.CoreWebView2?.CookieManager.DeleteAllCookies();
+        Log($"Web navigation starting: {e.Uri}");
+    }
+
+    private void OnWebNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
+    {
+        if (e.IsSuccess)
+        {
+            string currentUrl = _webView.Source?.ToString() ?? "(unknown)";
+            AddHistoryEntry(currentUrl);
+            Log($"Web navigation completed: {currentUrl}");
+        }
+        else
+        {
+            Log($"Web navigation failed: {e.WebErrorStatus}");
+        }
+
+        _webView.CoreWebView2?.CookieManager.DeleteAllCookies();
+    }
+
+    private void OnWebSourceChanged(object? sender, CoreWebView2SourceChangedEventArgs e)
+    {
+        string source = _webView.Source?.ToString() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(source))
+        {
+            return;
+        }
+
+        _addressBarTextBox.Text = source;
+        Log($"Web source changed: {source}");
+    }
+
+    private void OnWebDocumentTitleChanged(object? sender, object e)
+    {
+        string title = _webView.CoreWebView2?.DocumentTitle ?? "(untitled)";
+        Log($"Web title: {title}");
+    }
+
+    private void OnWebHistoryChanged(object? sender, object e)
+    {
+        if (_webView.CoreWebView2 is null)
+        {
+            return;
+        }
+
+        Log($"Web history state changed (Back: {_webView.CoreWebView2.CanGoBack}, Forward: {_webView.CoreWebView2.CanGoForward}).");
+    }
+
+    private void OnWebNewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs e)
+    {
+        e.Handled = true;
+        if (string.IsNullOrWhiteSpace(e.Uri))
+        {
+            Log("Web popup blocked (empty URI).");
+            return;
+        }
+
+        Log($"Web popup redirected to current view: {e.Uri}");
+        _addressBarTextBox.Text = e.Uri;
+        _webView.CoreWebView2?.Navigate(e.Uri);
+    }
+
+    private void OnWebResourceRequested(object? sender, CoreWebView2WebResourceRequestedEventArgs e)
+    {
+        if (!e.Request.Headers.Contains("Cookie"))
+        {
+            return;
+        }
+
+        e.Request.Headers.RemoveHeader("Cookie");
+        if (e.ResourceContext == CoreWebView2WebResourceContext.Document)
+        {
+            Log($"Cookie header removed for: {e.Request.Uri}");
+        }
+    }
+
+    private void AddHistoryEntry(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            return;
+        }
+
+        if (_sessionHistory.Count == 0 ||
+            !_sessionHistory[^1].Equals(url, StringComparison.OrdinalIgnoreCase))
+        {
+            _sessionHistory.Add(url);
+        }
+    }
+
+    private void CleanupWebSession()
+    {
+        _sessionHistory.Clear();
+
+        try
+        {
+            if (_webView.CoreWebView2 is not null)
+            {
+                _webView.CoreWebView2.CookieManager.DeleteAllCookies();
+            }
+        }
+        catch
+        {
+            // Best effort cleanup only.
+        }
+
+        try
+        {
+            _webView.Dispose();
+        }
+        catch
+        {
+            // Best effort cleanup only.
+        }
+
+        TryDeleteDirectoryWithRetry(_webSessionPath);
+    }
+
+    private static void TryDeleteDirectoryWithRetry(string path)
+    {
+        const int attempts = 5;
+        for (int i = 0; i < attempts; i++)
+        {
+            try
+            {
+                if (!Directory.Exists(path))
+                {
+                    return;
+                }
+
+                Directory.Delete(path, recursive: true);
+                return;
+            }
+            catch
+            {
+                if (i == attempts - 1)
+                {
+                    return;
+                }
+
+                Thread.Sleep(120);
+            }
+        }
     }
 
     private void ApplyProtection(bool enable)
@@ -118,7 +623,10 @@ public class MainForm : Form
     private void Log(string message)
     {
         string entry = $"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}";
-        _logBox.AppendText(entry);
+        if (!_logBox.IsDisposed)
+        {
+            _logBox.AppendText(entry);
+        }
 
         try
         {
