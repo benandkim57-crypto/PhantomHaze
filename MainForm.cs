@@ -33,44 +33,9 @@ public class MainForm : Form
 
     private const string DefaultHomeUrl = "https://www.google.com";
 
-    private const string DisableSiteDataScript = @"(() => {
-try {
-  Object.defineProperty(document, 'cookie', {
-    configurable: false,
-    enumerable: true,
-    get: () => '',
-    set: () => true
-  });
-} catch {}
-    try {
-        if (window.Storage && Storage.prototype) {
-            Storage.prototype.setItem = function () { throw new Error('Storage disabled by PhantomHaze.'); };
-            Storage.prototype.getItem = function () { return null; };
-            Storage.prototype.removeItem = function () { };
-            Storage.prototype.clear = function () { };
-        }
-    } catch {}
-    try { if (window.localStorage) { window.localStorage.clear(); } } catch {}
-    try { if (window.sessionStorage) { window.sessionStorage.clear(); } } catch {}
-try {
-  if (window.indexedDB) {
-    window.indexedDB.open = function () { throw new Error('IndexedDB disabled by PhantomHaze.'); };
-    window.indexedDB.deleteDatabase = function () { throw new Error('IndexedDB disabled by PhantomHaze.'); };
-  }
-} catch {}
-    try {
-        if (window.caches) {
-            window.caches.open = function () { return Promise.reject(new Error('Cache storage disabled by PhantomHaze.')); };
-            window.caches.match = function () { return Promise.resolve(undefined); };
-            window.caches.keys = function () { return Promise.resolve([]); };
-            window.caches.delete = function () { return Promise.resolve(false); };
-        }
-    } catch {}
-})();";
-
     public MainForm()
     {
-        Text = "PhantomHaze v1.2.1 Beta";
+        Text = "PhantomHaze v1.2.2 Beta";
         Width = 980;
         Height = 620;
         StartPosition = FormStartPosition.CenterScreen;
@@ -129,7 +94,7 @@ try {
 
     private void BuildUi()
     {
-        _contentLabel.Text = "PhantomHaze Beta v1.2.1";
+        _contentLabel.Text = "PhantomHaze Beta v1.2.2";
         _contentLabel.Font = new Font("Segoe UI", 16, FontStyle.Bold);
         _contentLabel.ForeColor = Color.Firebrick;
         _contentLabel.TextAlign = ContentAlignment.MiddleCenter;
@@ -141,7 +106,7 @@ try {
         _statusLabel.TextAlign = ContentAlignment.MiddleCenter;
         _statusLabel.Font = new Font("Segoe UI", 10, FontStyle.Bold);
 
-        _toggleButton.Text = "Disable Protection (testing only)";
+        _toggleButton.Text = "Disable Protection";
         _toggleButton.Dock = DockStyle.Top;
         _toggleButton.Height = 36;
         _toggleButton.Click += (_, _) => ApplyProtection(enable: !_protectionEnabled);
@@ -181,8 +146,8 @@ try {
     private void BuildAddressBar()
     {
         _addressBarPanel.Dock = DockStyle.Top;
-        _addressBarPanel.Height = 50;
-        _addressBarPanel.Padding = new Padding(8, 8, 8, 8);
+        _addressBarPanel.Height = 58;
+        _addressBarPanel.Padding = new Padding(8, 10, 8, 8);
         _addressBarPanel.Visible = false;
 
         var stripLayout = new TableLayoutPanel
@@ -193,6 +158,7 @@ try {
             Margin = new Padding(0),
             Padding = new Padding(0),
         };
+        stripLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36f));
 
         stripLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
         stripLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 64f));
@@ -216,23 +182,29 @@ try {
         _backButton.Text = "Back";
         _backButton.Dock = DockStyle.Fill;
         _backButton.Enabled = false;
+        ConfigureStripButton(_backButton);
         _backButton.Click += (_, _) => GoBack();
 
         _goButton.Text = "Go";
         _goButton.Dock = DockStyle.Fill;
+        ConfigureStripButton(_goButton);
         _goButton.Click += (_, _) => NavigateToAddressBarUrl();
 
         _refreshButton.Text = "Refresh";
         _refreshButton.Dock = DockStyle.Fill;
+        ConfigureStripButton(_refreshButton);
         _refreshButton.Click += (_, _) => RefreshWebView();
 
         _historyButton.Text = "History";
         _historyButton.Dock = DockStyle.Fill;
+        ConfigureStripButton(_historyButton);
         _historyButton.Click += (_, _) => ToggleHistoryPanel();
 
         _zoomLabel.Text = "Zoom 100%";
         _zoomLabel.Dock = DockStyle.Fill;
         _zoomLabel.TextAlign = ContentAlignment.MiddleCenter;
+        _zoomLabel.Margin = new Padding(3, 2, 3, 2);
+        _zoomLabel.Font = new Font("Segoe UI", 9, FontStyle.Regular);
 
         _zoomSlider.Minimum = 50;
         _zoomSlider.Maximum = 200;
@@ -240,6 +212,7 @@ try {
         _zoomSlider.TickFrequency = 10;
         _zoomSlider.AutoSize = false;
         _zoomSlider.Dock = DockStyle.Fill;
+        _zoomSlider.Margin = new Padding(3, 4, 3, 2);
         _zoomSlider.Scroll += (_, _) => ApplyZoom();
 
         stripLayout.Controls.Add(_addressBarTextBox, 0, 0);
@@ -251,6 +224,13 @@ try {
         stripLayout.Controls.Add(_zoomSlider, 6, 0);
 
         _addressBarPanel.Controls.Add(stripLayout);
+    }
+
+    private static void ConfigureStripButton(Button button)
+    {
+        button.AutoSize = false;
+        button.Margin = new Padding(3, 2, 3, 2);
+        button.Font = new Font("Segoe UI", 9, FontStyle.Regular);
     }
 
     private void BuildHistoryPanel()
@@ -370,14 +350,14 @@ try {
             core.DocumentTitleChanged += OnWebDocumentTitleChanged;
             core.HistoryChanged += OnWebHistoryChanged;
             core.NewWindowRequested += OnWebNewWindowRequested;
+            core.WebResourceResponseReceived += OnWebResourceResponseReceived;
 
-            await core.AddScriptToExecuteOnDocumentCreatedAsync(DisableSiteDataScript);
             await ClearWebSiteDataAsync(core);
 
             _webView.ZoomFactor = _zoomSlider.Value / 100.0;
             _webViewInitialized = true;
             UpdateNavigationButtons();
-            Log("Web View initialized. Cookies and site data are disabled for this session.");
+            Log("Web View initialized. Cookies are stored only for this app session.");
         }
         catch (Exception ex)
         {
@@ -572,24 +552,23 @@ try {
     private void OnWebNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
     {
         _addressBarTextBox.Text = e.Uri;
-        _webView.CoreWebView2?.CookieManager.DeleteAllCookies();
         Log($"Web navigation starting: {e.Uri}");
     }
 
-    private void OnWebNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
+    private async void OnWebNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
     {
         if (e.IsSuccess)
         {
             string currentUrl = _webView.Source?.ToString() ?? "(unknown)";
             AddHistoryEntry(currentUrl);
             Log($"Web navigation completed: {currentUrl}");
+            await LogCookieJarSnapshotAsync(currentUrl);
         }
         else
         {
             Log($"Web navigation failed: {e.WebErrorStatus}");
         }
 
-        _webView.CoreWebView2?.CookieManager.DeleteAllCookies();
         UpdateNavigationButtons();
     }
 
@@ -643,10 +622,79 @@ try {
             return;
         }
 
-        e.Request.Headers.RemoveHeader("Cookie");
-        if (e.ResourceContext == CoreWebView2WebResourceContext.Document)
+        try
         {
-            Log($"Cookie header removed for: {e.Request.Uri}");
+            string cookieHeader = e.Request.Headers.GetHeader("Cookie");
+            Log($"Cookie request header to {e.Request.Uri}: {NormalizeForLog(cookieHeader)}");
+        }
+        catch (Exception ex)
+        {
+            Log($"Cookie request header logging failed for {e.Request.Uri}: {ex.Message}");
+        }
+    }
+
+    private async void OnWebResourceResponseReceived(object? sender, CoreWebView2WebResourceResponseReceivedEventArgs e)
+    {
+        try
+        {
+            CoreWebView2WebResourceResponseView? response = e.Response;
+            if (response is null)
+            {
+                return;
+            }
+
+            bool sawSetCookie = false;
+            foreach ((string key, string value) in response.Headers)
+            {
+                if (!key.Equals("Set-Cookie", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                sawSetCookie = true;
+                Log($"Set-Cookie from {e.Request.Uri}: {NormalizeForLog(value)}");
+            }
+
+            if (sawSetCookie)
+            {
+                await LogCookieJarSnapshotAsync(e.Request.Uri);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log($"Set-Cookie logging failed for {e.Request.Uri}: {ex.Message}");
+        }
+    }
+
+    private async Task LogCookieJarSnapshotAsync(string source)
+    {
+        if (_webView.CoreWebView2 is null)
+        {
+            return;
+        }
+
+        try
+        {
+            IReadOnlyList<CoreWebView2Cookie> cookies = await _webView.CoreWebView2.CookieManager.GetCookiesAsync(null);
+            if (cookies.Count == 0)
+            {
+                Log($"Cookie jar after {source}: (empty)");
+                return;
+            }
+
+            Log($"Cookie jar after {source}: {cookies.Count} cookie(s).");
+            foreach (CoreWebView2Cookie cookie in cookies)
+            {
+                string expires = cookie.IsSession
+                    ? "session"
+                    : cookie.Expires.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
+
+                Log($"Cookie: {NormalizeForLog(cookie.Name)}={NormalizeForLog(cookie.Value)}; domain={NormalizeForLog(cookie.Domain)}; path={NormalizeForLog(cookie.Path)}; secure={cookie.IsSecure}; httpOnly={cookie.IsHttpOnly}; sameSite={cookie.SameSite}; expires={expires}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log($"Cookie jar snapshot failed after {source}: {ex.Message}");
         }
     }
 
@@ -757,10 +805,7 @@ try {
     private void Log(string message)
     {
         string entry = $"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}";
-        if (!_logBox.IsDisposed)
-        {
-            _logBox.AppendText(entry);
-        }
+        AppendLogEntryToUi(entry);
 
         try
         {
@@ -771,4 +816,34 @@ try {
             // Keep the app functional if temp storage is unavailable.
         }
     }
+
+    private void AppendLogEntryToUi(string entry)
+    {
+        if (_logBox.IsDisposed)
+        {
+            return;
+        }
+
+        try
+        {
+            if (_logBox.InvokeRequired)
+            {
+                _logBox.BeginInvoke(new Action<string>(AppendLogEntryToUi), entry);
+                return;
+            }
+
+            _logBox.AppendText(entry);
+        }
+        catch (ObjectDisposedException)
+        {
+            // Form is shutting down; ignore trailing async log writes.
+        }
+        catch (InvalidOperationException)
+        {
+            // Control handle is not available; skip non-critical UI log append.
+        }
+    }
+
+    private static string NormalizeForLog(string? value)
+        => (value ?? string.Empty).Replace("\r", "\\r").Replace("\n", "\\n");
 }
