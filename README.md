@@ -8,8 +8,8 @@ It includes:
 - Always-on protection toggle with status feedback.
 - Built-in logging for protection and browser events.
 - Optional Web View mode with an address bar, refresh, history, and zoom.
-- Session-focused privacy controls for Web View (cookies and site data
-  are cleared/blocked for the app session).
+- Session-only Web View cookie storage for compatibility (cookies are kept
+  only for the current app session and cleared when the app exits).
 
 ## How to install
 Ready to get it up and running? We can help, here's a guide in case you haven't used GitHub before:

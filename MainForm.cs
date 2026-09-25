@@ -26,6 +26,7 @@ public class MainForm : Form
     private readonly string _logFilePath;
     private readonly string _webSessionPath;
     private readonly List<string> _sessionHistory = new();
+    private string _lastWebViewUrl = DefaultHomeUrl;
 
     private bool _protectionEnabled;
     private bool _webViewInitialized;
@@ -35,7 +36,7 @@ public class MainForm : Form
 
     public MainForm()
     {
-        Text = "PhantomHaze v1.2.2 Beta";
+        Text = "PhantomHaze v1.2.3 Beta";
         Width = 980;
         Height = 620;
         StartPosition = FormStartPosition.CenterScreen;
@@ -94,7 +95,7 @@ public class MainForm : Form
 
     private void BuildUi()
     {
-        _contentLabel.Text = "PhantomHaze Beta v1.2.2";
+        _contentLabel.Text = "PhantomHaze Beta v1.2.3";
         _contentLabel.Font = new Font("Segoe UI", 16, FontStyle.Bold);
         _contentLabel.ForeColor = Color.Firebrick;
         _contentLabel.TextAlign = ContentAlignment.MiddleCenter;
@@ -300,7 +301,7 @@ public class MainForm : Form
                 _addressBarTextBox.Text = DefaultHomeUrl;
             }
 
-            EnsureDefaultHomePageLoaded();
+            RestoreLastWebPageOrDefault();
 
             Log("Web View mode enabled.");
             return;
@@ -309,12 +310,63 @@ public class MainForm : Form
         _webViewModeEnabled = false;
         _historyPanel.Visible = false;
         _historyButton.BackColor = SystemColors.Control;
+
+        if (_webViewInitialized && _webView.CoreWebView2 is not null)
+        {
+            string currentUrl = _webView.Source?.ToString() ?? _webView.CoreWebView2.Source;
+            if (!string.IsNullOrWhiteSpace(currentUrl) &&
+                !currentUrl.Equals("about:blank", StringComparison.OrdinalIgnoreCase))
+            {
+                _lastWebViewUrl = currentUrl;
+            }
+        }
+
+        if (_webViewInitialized && _webView.CoreWebView2 is not null)
+        {
+            try
+            {
+                _webView.CoreWebView2.Stop();
+                _webView.CoreWebView2.Navigate("about:blank");
+            }
+            catch (Exception ex)
+            {
+                Log($"Web View background stop failed: {ex.Message}");
+            }
+        }
+
         _addressBarPanel.Visible = false;
         _webView.Visible = false;
         _logBox.Visible = true;
         _logBox.BringToFront();
         UpdateWebViewToggleVisual();
         Log("Web View mode disabled; log panel restored.");
+    }
+
+    private void RestoreLastWebPageOrDefault()
+    {
+        if (!_webViewInitialized || _webView.CoreWebView2 is null)
+        {
+            return;
+        }
+
+        string targetUrl = string.IsNullOrWhiteSpace(_lastWebViewUrl)
+            ? DefaultHomeUrl
+            : _lastWebViewUrl;
+
+        _addressBarTextBox.Text = targetUrl;
+
+        string current = _webView.Source?.ToString() ?? _webView.CoreWebView2.Source;
+        bool needsNavigation = string.IsNullOrWhiteSpace(current) ||
+                               current.Equals("about:blank", StringComparison.OrdinalIgnoreCase) ||
+                               !current.Equals(targetUrl, StringComparison.OrdinalIgnoreCase);
+
+        if (!needsNavigation)
+        {
+            return;
+        }
+
+        _webView.CoreWebView2.Navigate(targetUrl);
+        Log($"Restored web page: {targetUrl}");
     }
 
     private async Task EnsureWebViewInitializedAsync()
@@ -551,12 +603,23 @@ public class MainForm : Form
 
     private void OnWebNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
     {
+        if (!_webViewModeEnabled)
+        {
+            return;
+        }
+
         _addressBarTextBox.Text = e.Uri;
         Log($"Web navigation starting: {e.Uri}");
     }
 
     private async void OnWebNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
     {
+        if (!_webViewModeEnabled)
+        {
+            UpdateNavigationButtons();
+            return;
+        }
+
         if (e.IsSuccess)
         {
             string currentUrl = _webView.Source?.ToString() ?? "(unknown)";
@@ -574,10 +637,20 @@ public class MainForm : Form
 
     private void OnWebSourceChanged(object? sender, CoreWebView2SourceChangedEventArgs e)
     {
+        if (!_webViewModeEnabled)
+        {
+            return;
+        }
+
         string source = _webView.Source?.ToString() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(source))
         {
             return;
+        }
+
+        if (!source.Equals("about:blank", StringComparison.OrdinalIgnoreCase))
+        {
+            _lastWebViewUrl = source;
         }
 
         _addressBarTextBox.Text = source;
@@ -586,12 +659,22 @@ public class MainForm : Form
 
     private void OnWebDocumentTitleChanged(object? sender, object e)
     {
+        if (!_webViewModeEnabled)
+        {
+            return;
+        }
+
         string title = _webView.CoreWebView2?.DocumentTitle ?? "(untitled)";
         Log($"Web title: {title}");
     }
 
     private void OnWebHistoryChanged(object? sender, object e)
     {
+        if (!_webViewModeEnabled)
+        {
+            return;
+        }
+
         if (_webView.CoreWebView2 is null)
         {
             return;
@@ -603,6 +686,12 @@ public class MainForm : Form
 
     private void OnWebNewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs e)
     {
+        if (!_webViewModeEnabled)
+        {
+            e.Handled = true;
+            return;
+        }
+
         e.Handled = true;
         if (string.IsNullOrWhiteSpace(e.Uri))
         {
@@ -617,6 +706,16 @@ public class MainForm : Form
 
     private void OnWebResourceRequested(object? sender, CoreWebView2WebResourceRequestedEventArgs e)
     {
+        if (!_webViewModeEnabled)
+        {
+            return;
+        }
+
+        if (e.ResourceContext != CoreWebView2WebResourceContext.Document)
+        {
+            return;
+        }
+
         if (!e.Request.Headers.Contains("Cookie"))
         {
             return;
@@ -625,7 +724,9 @@ public class MainForm : Form
         try
         {
             string cookieHeader = e.Request.Headers.GetHeader("Cookie");
-            Log($"Cookie request header to {e.Request.Uri}: {NormalizeForLog(cookieHeader)}");
+            string safeUri = TrimForLog(e.Request.Uri, 220);
+            string safeHeader = TrimForLog(NormalizeForLog(cookieHeader), 1200);
+            Log($"Cookie request header to {safeUri}: {safeHeader}");
         }
         catch (Exception ex)
         {
@@ -635,6 +736,11 @@ public class MainForm : Form
 
     private async void OnWebResourceResponseReceived(object? sender, CoreWebView2WebResourceResponseReceivedEventArgs e)
     {
+        if (!_webViewModeEnabled)
+        {
+            return;
+        }
+
         try
         {
             CoreWebView2WebResourceResponseView? response = e.Response;
@@ -846,4 +952,15 @@ public class MainForm : Form
 
     private static string NormalizeForLog(string? value)
         => (value ?? string.Empty).Replace("\r", "\\r").Replace("\n", "\\n");
+
+    private static string TrimForLog(string? value, int maxLength)
+    {
+        string normalized = NormalizeForLog(value);
+        if (normalized.Length <= maxLength)
+        {
+            return normalized;
+        }
+
+        return normalized[..maxLength] + " ...[truncated]";
+    }
 }
