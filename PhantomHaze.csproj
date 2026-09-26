@@ -7,11 +7,12 @@
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
+    <DefaultItemExcludes>$(DefaultItemExcludes);tmp/**</DefaultItemExcludes>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <AssemblyName>PhantomHaze</AssemblyName>
     <RootNamespace>PhantomHaze</RootNamespace>
-    <Version>1.2.3-beta</Version>
-    <InformationalVersion>v1.2.3 beta</InformationalVersion>
+    <Version>1.2.4-beta</Version>
+    <InformationalVersion>v1.2.4 beta</InformationalVersion>
   </PropertyGroup>
 
   <ItemGroup>

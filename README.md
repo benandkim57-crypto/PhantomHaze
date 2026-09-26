@@ -7,9 +7,14 @@ hidden from many screen capture workflows by using
 It includes:
 - Always-on protection toggle with status feedback.
 - Built-in logging for protection and browser events.
-- Optional Web View mode with an address bar, refresh, history, and zoom.
-- Session-only Web View cookie storage for compatibility (cookies are kept
+- Optional Web View mode with tabs, favicon/title tab headers, and quick tab
+  creation/close controls.
+- Address bar favorites control with persisted favourites (the only browser data
+  saved across sessions).
+- Session-only web history and cookie storage for compatibility (both are kept
   only for the current app session and cleared when the app exits).
+- Find in page via Ctrl+F with live match highlighting and a closeable search
+  panel.
 
 ## How to install
 Ready to get it up and running? We can help, here's a guide in case you haven't used GitHub before:

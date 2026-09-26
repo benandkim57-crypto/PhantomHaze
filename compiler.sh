@@ -10,6 +10,8 @@ BIN_DIR="$TEMP_ROOT/PhantomHaze/bin"
 OBJ_DIR="$TEMP_ROOT/PhantomHaze/obj"
 EXE_PATH="$OUTPUT_DIR/PhantomHaze.exe"
 LOG_FILE="$LOG_DIR/compiler-$(date -u +%Y%m%dT%H%M%SZ).log"
+LEGACY_BIN_DIR="$SCRIPT_DIR/bin"
+LEGACY_OBJ_DIR="$SCRIPT_DIR/obj"
 
 mkdir -p "$LOG_DIR"
 mkdir -p "$BIN_DIR"
@@ -49,6 +51,11 @@ fi
 echo "Using .NET SDK $(dotnet --version)"
 echo "Publishing $PROJECT_FILE to $OUTPUT_DIR"
 echo "Temp build paths: bin=$BIN_DIR obj=$OBJ_DIR"
+
+if [[ -d "$LEGACY_BIN_DIR" || -d "$LEGACY_OBJ_DIR" ]]; then
+  echo "Cleaning project-root bin/obj to avoid duplicate compile items with custom temp paths."
+  rm -rf "$LEGACY_BIN_DIR" "$LEGACY_OBJ_DIR"
+fi
 
 dotnet publish "$PROJECT_FILE" \
   -c Release \
